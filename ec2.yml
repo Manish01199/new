@@ -1,0 +1,484 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: Build EC2.
+
+Parameters:
+  Environment:
+    Type: String
+    Default: Sandbox
+  ImageId:
+    Description: Ubuntu 22.04.1 LTS
+    Type: String
+    Default: "ami-07c2ae35d31367b3e"
+  EdgeImageId:
+    Description: OTG Platform Ubuntu 22.04.1 LTS
+    Type: String
+    Default: "ami-01d63f2171ab3224a"
+  Ec2KeyName:
+    Type: String
+    Default: "OTGToolsKeyPair"
+  ApacheEc2KeyName:
+    Type: String
+    Default: "ApacheEc2KeyPair"
+  ToolsVpcId:
+    Description: The Tools VPC ID, required to create Security Groups in the shared VPC.
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: VpcId
+  VpnEc2SecurityGroupId:
+    Description: Vpn Security Group Id from Tools
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: VpnEc2SecurityGroupId
+  ToolsAccountId:
+    Description: Required to reference VpnEc2SecurityGroupId in Security Group rules.
+    Type: AWS::SSM::Parameter::Value<String>
+    Default: AccountId
+  DnsStackName:
+    Description: Cross-stack reference to DNS stack.
+    Type: String
+    Default: dns-stack
+  NetworkStackName:
+    Description: Cross-stack reference to Network stack.
+    Type: String
+    Default: network-stack
+  InstanceType:
+    Type: String
+    Default: "t2.medium"
+  AvailabilityZone:
+    Type: String
+    Default: "eu-west-2a"
+
+Resources:
+  RunnerEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: RunnerEc2SecurityGroup
+      GroupDescription: "RunnerEc2SecurityGroup"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 0
+          ToPort: 65535
+          IpProtocol: -1
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref VpnEc2SecurityGroupId
+          SourceSecurityGroupOwnerId: !Ref ToolsAccountId
+          IpProtocol: -1
+      VpcId: !Ref ToolsVpcId
+
+  RunnerEc2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceInitiatedShutdownBehavior: stop
+      InstanceType: t3.medium
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sda1"
+        Ebs:
+          VolumeType: "gp2"
+          DeleteOnTermination: "false"
+          VolumeSize: "20"
+      KeyName: !Ref Ec2KeyName
+      SecurityGroupIds:
+        - !Ref RunnerEc2SecurityGroup
+      SubnetId: !ImportValue
+        'Fn::Sub': '${NetworkStackName}-PrivateSubnet1Id'
+      IamInstanceProfile: !Ref RunnerEc2InstanceProfile
+
+  RunnerEc2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: RunnerEc2InstanceRole
+      Description: "IAM Role used by Runner EC2 instance"
+      AssumeRolePolicyDocument:
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                  "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+
+  RunnerEc2InstanceRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: RunnerEc2InstanceRolePolicy
+      PolicyDocument:
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Resource": "*",
+              "Action": [
+                  "ec2:Describe*",
+                  "ecr:*"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:s3:::otg-software-sandbox",
+                "arn:aws:s3:::otg-software-sandbox/*"
+              ],
+              "Action": [
+                  "s3:GetObject*"
+              ]
+            },
+            {
+                "Effect": "Allow",
+                "Action": "secretsmanager:GetSecretValue",
+                "Resource": [
+                  "arn:aws:secretsmanager:eu-west-2:422295180701:secret:otg-platform/pgp/*",
+                  "arn:aws:secretsmanager:eu-west-2:422295180701:secret:otg-platform/iot/claim-cert/*"
+                ]
+            },
+            {
+                "Sid": "ListImagesInRepository",
+                "Effect": "Allow",
+                "Action": [
+                    "ecr:ListImages"
+                ],
+                "Resource": "arn:aws:ecr:eu-west-2:422295180701:repository/otg-aptly"
+            },
+            {
+                "Sid": "GetAuthorizationToken",
+                "Effect": "Allow",
+                "Action": [
+                    "ecr:GetAuthorizationToken"
+                ],
+                "Resource": "*"
+            },
+            {
+                "Sid": "ManageRepositoryContents",
+                "Effect": "Allow",
+                "Action": [
+                    "ecr:BatchCheckLayerAvailability",
+                    "ecr:GetDownloadUrlForLayer",
+                    "ecr:GetRepositoryPolicy",
+                    "ecr:DescribeRepositories",
+                    "ecr:ListImages",
+                    "ecr:DescribeImages",
+                    "ecr:BatchGetImage",
+                    "ecr:InitiateLayerUpload",
+                    "ecr:UploadLayerPart",
+                    "ecr:CompleteLayerUpload",
+                    "ecr:PutImage"
+                ],
+                "Resource": "arn:aws:ecr:eu-west-2:422295180701:repository/otg-aptly"
+            }
+          ]
+        }
+      Roles:
+        - !Ref RunnerEc2InstanceRole
+
+  RunnerEc2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: RunnerEc2InstanceProfile
+      Roles:
+        - !Ref RunnerEc2InstanceRole
+
+  RunnerEc2InstancePrivateDns:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId : !ImportValue
+        'Fn::Sub': '${DnsStackName}-PrivateHostedZoneId'
+      Name: "runner.tools.otg-sandbox.com"
+      ResourceRecords:
+        - !GetAtt RunnerEc2Instance.PrivateDnsName
+      TTL: 900
+      Type: CNAME
+
+  JenkinsEbsVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+#      Encrypted: true
+#      KmsKeyId: aws/ebs
+      Size: 20
+      VolumeType: gp2
+      Tags:
+        - Key: Backup
+          Value: true
+
+  ApacheEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: ApacheEc2SecurityGroup
+      GroupDescription: "RunnerEc2SecurityGroup"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 0
+          ToPort: 65535
+          IpProtocol: -1
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref VpnEc2SecurityGroupId
+          SourceSecurityGroupOwnerId: !Ref ToolsAccountId
+          IpProtocol: -1
+      VpcId: !Ref ToolsVpcId
+
+  ApacheEc2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref ImageId
+      InstanceInitiatedShutdownBehavior: stop
+      InstanceType: t3.medium
+      BlockDeviceMappings:
+      - DeviceName: "/dev/sda1"
+        Ebs:
+          VolumeType: "gp2"
+          DeleteOnTermination: "false"
+          VolumeSize: "20"
+      KeyName: !Ref ApacheEc2KeyName
+      SecurityGroupIds:
+        - !Ref ApacheEc2SecurityGroup
+      SubnetId: !ImportValue
+        'Fn::Sub': '${NetworkStackName}-PrivateSubnet1Id'
+
+  ApacheEc2InstancePrivateDns:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId : !ImportValue
+        'Fn::Sub': '${DnsStackName}-PrivateHostedZoneId'
+      Name: "apache.tools.otg-sandbox.com"
+      ResourceRecords:
+        - !GetAtt ApacheEc2Instance.PrivateDnsName
+      TTL: 900
+      Type: CNAME
+
+  AptlyEbsVolume:
+    Type: AWS::EC2::Volume
+    Properties:
+      AvailabilityZone: !Ref AvailabilityZone
+      Size: 100
+      VolumeType: gp2
+      Tags:
+        - Key: Backup
+          Value: true
+        - Key: Name
+          Value: Aptly
+
+  EdgeEc2SecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: EdgeEc2SecurityGroup
+      GroupDescription: "EdgeEc2SecurityGroup"
+      SecurityGroupEgress:
+        - CidrIp: 0.0.0.0/0
+          FromPort: 0
+          ToPort: 65535
+          IpProtocol: -1
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref VpnEc2SecurityGroupId
+          SourceSecurityGroupOwnerId: !Ref ToolsAccountId
+          IpProtocol: -1
+      VpcId: !Ref ToolsVpcId
+
+  EdgeEc2Instance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref EdgeImageId
+      InstanceInitiatedShutdownBehavior: stop
+      InstanceType: t3.medium
+      BlockDeviceMappings:
+        - DeviceName: "/dev/sda1"
+          Ebs:
+            VolumeType: "gp2"
+            DeleteOnTermination: "false"
+            VolumeSize: "20"
+      KeyName: !Ref Ec2KeyName
+      SecurityGroupIds:
+        - !Ref EdgeEc2SecurityGroup
+      SubnetId: !ImportValue
+        'Fn::Sub': '${NetworkStackName}-PrivateSubnet1Id'
+      IamInstanceProfile: !Ref EdgeEc2InstanceProfile
+
+  EdgeEc2InstanceRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: EdgeEc2InstanceRole
+      Description: "IAM Role used by Edge EC2 instance"
+      AssumeRolePolicyDocument:
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "ec2.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        }
+
+  EdgeEc2InstanceRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: EdgeEc2InstanceRolePolicy
+      PolicyDocument:
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Resource": "*",
+              "Action": [
+                "ec2:Describe*",
+                "ecr:*"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:s3:::otg-edge-sandbox",
+                "arn:aws:s3:::otg-edge-sandbox/*"
+              ],
+              "Action": [
+                "s3:GetObject*",
+                "s3:PutObject*"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": "secretsmanager:GetSecretValue",
+              "Resource": "arn:aws:secretsmanager:eu-west-2:422295180701:secret:otg-platform/pgp/*"
+            },
+            {
+              "Sid": "ListImagesInRepository",
+              "Effect": "Allow",
+              "Action": [
+                "ecr:ListImages"
+              ],
+              "Resource": "arn:aws:ecr:eu-west-2:422295180701:repository/otg-edge"
+            },
+            {
+              "Sid": "GetAuthorizationToken",
+              "Effect": "Allow",
+              "Action": [
+                "ecr:GetAuthorizationToken"
+              ],
+              "Resource": "*"
+            },
+            {
+              "Sid": "ManageRepositoryContents",
+              "Effect": "Allow",
+              "Action": [
+                "ecr:BatchCheckLayerAvailability",
+                "ecr:GetDownloadUrlForLayer",
+                "ecr:GetRepositoryPolicy",
+                "ecr:DescribeRepositories",
+                "ecr:ListImages",
+                "ecr:DescribeImages",
+                "ecr:BatchGetImage"
+              ],
+              "Resource": "arn:aws:ecr:eu-west-2:422295180701:repository/otg-edge"
+            }
+          ]
+        }
+      Roles:
+        - !Ref EdgeEc2InstanceRole
+
+  EdgeEc2InstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    Properties:
+      InstanceProfileName: EdgeEc2InstanceProfile
+      Roles:
+        - !Ref EdgeEc2InstanceRole
+
+  EdgeEc2InstancePrivateDns:
+    Type: AWS::Route53::RecordSet
+    Properties:
+      HostedZoneId: !ImportValue
+        'Fn::Sub': '${DnsStackName}-PrivateHostedZoneId'
+      Name: "edge.tools.otg-sandbox.com"
+      ResourceRecords:
+        - !GetAtt EdgeEc2Instance.PrivateDnsName
+      TTL: 900
+      Type: CNAME
+
+  VmImportRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: vmimport
+      Description: "IAM Role used to import VMs"
+      AssumeRolePolicyDocument:
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": { "Service": "vmie.amazonaws.com" },
+              "Action": "sts:AssumeRole",
+              "Condition": {
+                "StringEquals": {
+                  "sts:Externalid": "vmimport"
+                }
+              }
+            }
+          ]
+        }
+
+  VmImportRolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: VmImportRolePolicy
+      PolicyDocument:
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetBucketLocation",
+                "s3:GetObject",
+                "s3:ListBucket"
+              ],
+              "Resource": [
+                "arn:aws:s3:::otg-software-sandbox/otg-platform/images",
+                "arn:aws:s3:::otg-software-sandbox/otg-platform/images/*"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "s3:GetBucketLocation",
+                "s3:GetObject",
+                "s3:ListBucket",
+                "s3:PutObject",
+                "s3:GetBucketAcl"
+              ],
+              "Resource": [
+                "arn:aws:s3:::otg-software-sandbox/otg-platform/images/ec2",
+                "arn:aws:s3:::otg-software-sandbox/otg-platform/images/ec2/*"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Action": [
+                "ec2:ModifySnapshotAttribute",
+                "ec2:CopySnapshot",
+                "ec2:RegisterImage",
+                "ec2:Describe*"
+              ],
+              "Resource": "*"
+            }
+          ]
+        }
+      Roles:
+        - !Ref VmImportRole
+
+Outputs:
+  RunnerEc2SecurityGroupId:
+    Value: !Ref RunnerEc2SecurityGroup
+    Export:
+      Name: !Sub "${AWS::StackName}-RunnerEc2SecurityGroupId"
+
+  JenkinsEbsVolumeId:
+    Value: !GetAtt JenkinsEbsVolume.VolumeId
+    Export:
+      Name: !Sub "${AWS::StackName}-JenkinsEbsVolumeId"
