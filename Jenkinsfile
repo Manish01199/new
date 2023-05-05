@@ -8,7 +8,7 @@ pipeline {
     stages {
         stage('Enter Container') {
             steps {
-                sh 'apt-get update && apt-get install -y git && apt-get install python3-pip'
+                sh 'apt-get update && apt-get install -y git && apt-get install -y python3-pip'
                 sh 'pip install -y awscli'
                 sh 'echo "6" '
                 sh 'aws configure set aws_access_key_id AKIAWQ2ANG2GS4J7Y5XW'
