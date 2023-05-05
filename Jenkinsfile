@@ -1,34 +1,20 @@
 pipeline {
-	agent any
-	environment {
-	   SKIP_PREFLIGHT_CHECK=true
-	   CI=false
-	}
-
-	stages {
-	    stage('SCM Checkout') {
+    agent {
+        docker {
+            image 'ubuntu'
+            args '-u root'
+        }
+    }
+    stages {
+        stage('Enter Container') {
             steps {
-                cleanWs()
-                git branch: 'refector_Release/develop' , url: 'https://jenkinsdevstringx:JLvRu9eaT9NsH6v9gTML@bitbucket.org/devstringxtechnologies/fehrms.git'
-                echo 'Fetching code'
+                sh 'apt-get update && apt-get install -y git'
+                sh 'apt-get install -y awscli'
+                sh 'aws configure set aws_access_key_id AKIAWQ2ANG2GS4J7Y5XW'
+                sh 'aws configure set aws_secret_access_key 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'
+                sh 'aws configure set region us-east-1'
+                sh 'aws cloudformation create-stack --stack-name example-stack --template-body file://create.yaml --capabilities CAPABILITY_NAMED_IAM'
             }
-
-	    }
-
-	    stage('Execute run shell') {
-            steps{
-                sh '''
-               bash /var/lib/jenkins/run.sh
-                '''
-                echo 'Done'
-            }
-        } 
-        //cp -r /var/lib/jenkins/workspace/node_modules/ /var/lib/jenkins/workspace/test/
-        stage('Deploy'){
-            steps{
-            // cleanWs()    
-             echo 'Build Successful'
         }
-        }
-	}
+    }
 }
