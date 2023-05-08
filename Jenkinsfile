@@ -3,7 +3,8 @@ pipeline {
         docker {
             image 'ubuntu'
             args '-u root'
-        }
+          }
+	}
     environment {
         AWS_ACCESS_KEY_ID = credentials('AKIAWQ2ANG2GS4J7Y5XW')
         AWS_SECRET_ACCESS_KEY = credentials('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')
@@ -34,4 +35,4 @@ pipeline {
         }
     }
 }
-}
+
