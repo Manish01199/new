@@ -14,7 +14,7 @@ pipeline {
     }
     stage('Create Stack') {
       steps {
-        withCredentials([[$class: 'AmazonWebServicesCredentialsBinding', accessKeyVariable: 'AKIAWQ2ANG2GS4J7Y5XW', secretKeyVariable: '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']]) {
+        withCredentials([[accessKeyVariable: 'AKIAWQ2ANG2GS4J7Y5XW', secretKeyVariable: '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']]) {
           sh 'aws cloudformation create-stack --stack-name my-stack --template-body file://create.yml'
         }
       }
