@@ -5,15 +5,3 @@ Resources:
       BucketName: mycloudapp.xyz
       AccessControl: Private
 
-  MyBucketPolicy:
-    Type: 'AWS::S3::BucketPolicy'
-    Properties:
-      Bucket: !Ref MyBucket
-      PolicyDocument:
-        Version: '2012-10-17'
-        Statement:
-          - Effect: Allow
-            Principal:
-              AWS: !Sub "arn:aws:iam::${AWS::AccountId}:root"
-            Action: s3:*
-            Resource: !Sub "arn:aws:s3:::${MyBucket}/*"
