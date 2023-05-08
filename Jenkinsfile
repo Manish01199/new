@@ -1,6 +1,9 @@
 pipeline {
   agent {
-    docker { image 'ubuntu' }
+    docker {
+            image 'ubuntu'
+            args '-u root'
+        }
   }
   stages {
     stage('Install Dependencies') {
