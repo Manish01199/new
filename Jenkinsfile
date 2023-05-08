@@ -8,7 +8,8 @@ pipeline {
   stages {
     stage('Install Dependencies') {
       steps {
-        sh 'apt-get update && apt-get install -y awscli'
+        sh 'apt-get update && apt-get install -y git && apt-get install -y python3-pip'
+        sh 'pip install awscli'
       }
     }
     stage('Create Stack') {
