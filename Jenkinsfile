@@ -12,7 +12,7 @@ pipeline {
                 sh 'pip install awscli'
                 sh 'echo "6" '
                 sh 'aws configure set region us-east-1'
-                sh 'aws cloudformation create-stack --stack-name S3-stack --template-body file://create.yml --region 'us-east-1'' 
+                sh 'aws cloudformation create-stack --stack-name S3-stack --template-body file://create.yml --region "us-east-1"' 
             }
         }
     }
