@@ -1,0 +1,64 @@
+AWSTemplateFormatVersion: "2010-09-09"
+
+Description: IAM.
+
+Parameters:
+  ToolsAccountId:
+    Description: Tools account ID
+    Type: String
+    Default: "448422295181"
+  ToolsAccountRegion:
+    Description: Tools account region
+    Type: String
+    Default: "eu-west-2"
+
+Resources:
+  EdgeDataS3RolePolicy:
+    Type: AWS::IAM::Policy
+    Properties:
+      PolicyName: EdgeDataS3RolePolicy
+      PolicyDocument:
+        {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:s3:::otg-edge-sandbox"
+              ],
+              "Action": [
+                "s3:ListBucket"
+              ]
+            },
+            {
+              "Effect": "Allow",
+              "Resource": [
+                "arn:aws:s3:::otg-edge-sandbox",
+                "arn:aws:s3:::otg-edge-sandbox/*"
+              ],
+              "Action": [
+                "s3:GetObject*",
+                "s3:PutObject*"
+              ]
+            },
+          ]
+        }
+      Roles:
+        - !Ref IoTCredentialsProviderRole
+
+  IoTCredentialsProviderRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: {
+        "Version": "2012-10-17",
+        "Statement": {
+          "Effect": "Allow",
+          "Principal": {"Service": "credentials.iot.amazonaws.com"},
+          "Action": "sts:AssumeRole"
+        }
+      }
+      Description: Allows IoT to get temporary credentials from credentials provider
+      RoleName: IoTCredentialsProviderRole
+      Tags:
+        - Key: Credentials
+          Value: true
