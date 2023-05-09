@@ -13,7 +13,7 @@ pipeline {
                 sh 'aws configure set aws_access_key_id AKIAWQ2ANG2GS4J7Y5XW'
                 sh 'aws configure set aws_secret_access_key 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'
                 sh 'aws configure set region us-east-1'
-                sh 'aws cloudformation create-stack --stack-name S3-stack --template-body file://cc.yml' 
+                sh 'aws cloudformation create-stack --stack-name S3-stack --template-body file://cc.yml [CAPABILITY_NAMED_IAM]' 
             }
         }
     }
